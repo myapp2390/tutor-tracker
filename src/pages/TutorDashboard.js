@@ -861,33 +861,203 @@ export default function TutorDashboard() {
         {/* PROGRESS */}
         {page === "progress" && (
           <>
-            <div className="page-header"><h1>Progress Overview</h1><p>How each student is performing</p></div>
+            <div className="page-header"><h1>Progress Overview</h1><p>Performance analytics across all your students</p></div>
             {students.length === 0
               ? <div className="card"><div className="empty-state"><div className="empty-icon">📊</div><p>Add students to track progress.</p></div></div>
-              : students.map(s => {
-                const stuAssign = assignments.filter(a => a.studentId === s.id);
-                const graded = stuAssign.filter(a => a.status==="graded" && a.obtainedMarks!=null);
-                const avg = graded.length ? Math.round(graded.reduce((sum,a) => sum+(a.obtainedMarks/a.totalMarks)*100, 0)/graded.length) : null;
-                const stuSessions = sessions.filter(s2 => s2.studentId===s.id);
-                return (
-                  <div key={s.id} className="card" style={{marginBottom:16}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-                      <div style={{display:"flex",gap:12,alignItems:"center"}}>
-                        <div className="user-avatar" style={{width:40,height:40,fontSize:16,background:"#3d8ef0"}}>{s.name?.charAt(0)?.toUpperCase()}</div>
-                        <div><div style={{fontWeight:600}}>{s.name}</div><div style={{fontSize:12,color:"var(--text-secondary)"}}>{stuSessions.filter(x=>x.status==="completed").length} sessions completed</div></div>
-                      </div>
-                      {avg!=null && <div style={{textAlign:"right"}}><div style={{fontSize:24,fontWeight:700,color:avg>=70?"var(--accent-teal)":avg>=50?"var(--accent-amber)":"var(--accent-rose)"}}>{avg}%</div><div style={{fontSize:12,color:"var(--text-secondary)"}}>Average score</div></div>}
-                    </div>
-                    {stuAssign.length===0 ? <p style={{color:"var(--text-muted)",fontSize:13}}>No assignments given yet.</p>
-                      : <table className="data-table"><thead><tr><th>Assignment</th><th>Status</th><th>Score</th></tr></thead>
-                        <tbody>{stuAssign.map(a => (
-                          <tr key={a.id}><td>{a.title}</td><td><span className={`badge ${a.status==="graded"?"badge-green":a.status==="submitted"?"badge-amber":"badge-rose"}`}>{a.status}</span></td><td>{a.obtainedMarks!=null?`${a.obtainedMarks}/${a.totalMarks}`:"—"}</td></tr>
-                        ))}</tbody>
-                      </table>
-                    }
+              : <>
+                {/* Top summary cards */}
+                <div className="stats-grid" style={{marginBottom:24}}>
+                  <div className="stat-card">
+                    <div className="stat-label">Total Sessions</div>
+                    <div className="stat-value">{sessions.filter(s=>s.status==="completed").length}</div>
+                    <div style={{fontSize:12,color:"var(--text-muted)"}}>completed</div>
                   </div>
-                );
-              })
+                  <div className="stat-card">
+                    <div className="stat-label">Assignments Given</div>
+                    <div className="stat-value">{assignments.length}</div>
+                    <div style={{fontSize:12,color:"var(--text-muted)"}}>{assignments.filter(a=>a.status==="graded").length} graded</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Overall Avg Score</div>
+                    <div className="stat-value" style={{color:"var(--accent-teal)"}}>
+                      {(() => {
+                        const graded = assignments.filter(a=>a.status==="graded"&&a.obtainedMarks!=null);
+                        return graded.length ? Math.round(graded.reduce((s,a)=>s+(a.obtainedMarks/a.totalMarks)*100,0)/graded.length)+"%" : "—";
+                      })()}
+                    </div>
+                    <div style={{fontSize:12,color:"var(--text-muted)"}}>across all students</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Pending Review</div>
+                    <div className="stat-value" style={{color:"var(--accent-amber)"}}>{assignments.filter(a=>a.status==="submitted").length}</div>
+                    <div style={{fontSize:12,color:"var(--text-muted)"}}>to grade</div>
+                  </div>
+                </div>
+
+                {/* Per-student cards */}
+                {students.map(stu => {
+                  const stuAssign = assignments.filter(a => a.studentId === stu.id);
+                  const graded = stuAssign.filter(a => a.status==="graded" && a.obtainedMarks!=null);
+                  const avg = graded.length ? Math.round(graded.reduce((sum,a)=>sum+(a.obtainedMarks/a.totalMarks)*100,0)/graded.length) : null;
+                  const stuSessions = sessions.filter(s => (s.studentIds||[s.studentId]).includes(stu.id));
+                  const completedSess = stuSessions.filter(x=>x.status==="completed").length;
+                  const scheduledSess = stuSessions.filter(x=>x.status==="scheduled").length;
+
+                  // Assignment score trend — last 8 graded assignments in order
+                  const scoreTrend = graded
+                    .sort((a,b)=>(a.createdAt||0)-(b.createdAt||0))
+                    .slice(-8)
+                    .map((a,i) => ({
+                      name: a.title.length>12 ? a.title.slice(0,12)+"…" : a.title,
+                      score: Math.round((a.obtainedMarks/a.totalMarks)*100)
+                    }));
+
+                  // Sessions per month (last 6 months)
+                  const sessPerMonth = {};
+                  stuSessions.filter(s=>s.status==="completed" && s.utcTimestamp).forEach(s => {
+                    const m = new Date(s.utcTimestamp).toLocaleString("en-US",{month:"short",year:"2-digit"});
+                    sessPerMonth[m] = (sessPerMonth[m]||0) + 1;
+                  });
+                  const sessionChart = Object.entries(sessPerMonth).slice(-6).map(([m,v])=>({month:m,sessions:v}));
+
+                  const avgColor = avg==null?"var(--text-muted)":avg>=80?"var(--accent-teal)":avg>=60?"var(--accent-amber)":"var(--accent-rose)";
+
+                  return (
+                    <div key={stu.id} className="card" style={{marginBottom:24}}>
+                      {/* Student header */}
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24,flexWrap:"wrap",gap:12}}>
+                        <div style={{display:"flex",gap:14,alignItems:"center"}}>
+                          <div className="user-avatar" style={{width:48,height:48,fontSize:18,background:"var(--accent-blue)",flexShrink:0}}>{stu.name?.charAt(0)?.toUpperCase()}</div>
+                          <div>
+                            <div style={{fontWeight:700,fontSize:16}}>{stu.name}</div>
+                            <div style={{fontSize:12,color:"var(--text-secondary)",marginTop:2}}>
+                              {completedSess} classes done · {scheduledSess} upcoming · {stuAssign.length} assignments
+                            </div>
+                          </div>
+                        </div>
+                        {avg!=null && (
+                          <div style={{textAlign:"center",padding:"10px 20px",background:"rgba(56,201,176,0.08)",borderRadius:12,border:"1px solid rgba(56,201,176,0.2)"}}>
+                            <div style={{fontSize:32,fontWeight:800,color:avgColor,lineHeight:1}}>{avg}%</div>
+                            <div style={{fontSize:11,color:"var(--text-muted)",marginTop:2}}>avg score</div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Mini stat pills */}
+                      <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+                        {[
+                          {label:"Pending",val:stuAssign.filter(a=>a.status==="pending").length,color:"var(--accent-rose)"},
+                          {label:"Submitted",val:stuAssign.filter(a=>a.status==="submitted").length,color:"var(--accent-amber)"},
+                          {label:"Graded",val:graded.length,color:"var(--accent-teal)"},
+                        ].map(pill=>(
+                          <div key={pill.label} style={{padding:"4px 12px",borderRadius:20,background:"var(--bg-secondary)",border:"1px solid var(--border)",fontSize:12,display:"flex",gap:6,alignItems:"center"}}>
+                            <span style={{fontWeight:700,color:pill.color}}>{pill.val}</span>
+                            <span style={{color:"var(--text-muted)"}}>{pill.label}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Charts row */}
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
+                        {/* Score trend chart */}
+                        <div style={{background:"var(--bg-secondary)",borderRadius:10,padding:"14px 16px",border:"1px solid var(--border)"}}>
+                          <div style={{fontSize:12,fontWeight:600,color:"var(--text-secondary)",marginBottom:12}}>📈 Score Trend</div>
+                          {scoreTrend.length < 2
+                            ? <div style={{fontSize:12,color:"var(--text-muted)",textAlign:"center",padding:"20px 0"}}>Need 2+ graded assignments</div>
+                            : (
+                              <div style={{position:"relative",height:80}}>
+                                {/* Simple SVG line chart */}
+                                <svg viewBox={`0 0 ${scoreTrend.length*40} 80`} style={{width:"100%",height:"100%",overflow:"visible"}}>
+                                  {/* Grid lines */}
+                                  {[0,25,50,75,100].map(y=>(
+                                    <line key={y} x1={0} y1={80-(y*80/100)} x2={scoreTrend.length*40} y2={80-(y*80/100)} stroke="rgba(255,255,255,0.05)" strokeWidth={1}/>
+                                  ))}
+                                  {/* Line */}
+                                  <polyline
+                                    points={scoreTrend.map((d,i)=>`${i*40+20},${80-(d.score*80/100)}`).join(" ")}
+                                    fill="none" stroke="var(--accent-teal)" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round"
+                                  />
+                                  {/* Dots + values */}
+                                  {scoreTrend.map((d,i)=>(
+                                    <g key={i}>
+                                      <circle cx={i*40+20} cy={80-(d.score*80/100)} r={4} fill="var(--accent-teal)" stroke="var(--bg-secondary)" strokeWidth={2}/>
+                                      <text x={i*40+20} y={80-(d.score*80/100)-8} textAnchor="middle" fontSize="9" fill="var(--accent-teal)" fontWeight="600">{d.score}%</text>
+                                    </g>
+                                  ))}
+                                </svg>
+                                {/* X labels */}
+                                <div style={{display:"flex",justifyContent:"space-around",marginTop:4}}>
+                                  {scoreTrend.map((d,i)=>(
+                                    <div key={i} style={{fontSize:9,color:"var(--text-muted)",textAlign:"center",flex:1}}>{d.name}</div>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          }
+                        </div>
+
+                        {/* Sessions per month chart */}
+                        <div style={{background:"var(--bg-secondary)",borderRadius:10,padding:"14px 16px",border:"1px solid var(--border)"}}>
+                          <div style={{fontSize:12,fontWeight:600,color:"var(--text-secondary)",marginBottom:12}}>📅 Sessions per Month</div>
+                          {sessionChart.length === 0
+                            ? <div style={{fontSize:12,color:"var(--text-muted)",textAlign:"center",padding:"20px 0"}}>No completed sessions yet</div>
+                            : (
+                              <div style={{position:"relative",height:80}}>
+                                {(() => {
+                                  const maxV = Math.max(...sessionChart.map(d=>d.sessions), 1);
+                                  const barW = Math.floor(80/sessionChart.length);
+                                  return (
+                                    <svg viewBox={`0 0 ${sessionChart.length*50} 80`} style={{width:"100%",height:"80px"}}>
+                                      {sessionChart.map((d,i)=>{
+                                        const bh = Math.round((d.sessions/maxV)*70);
+                                        return (
+                                          <g key={i}>
+                                            <rect x={i*50+8} y={80-bh} width={34} height={bh} rx={4} fill="rgba(61,142,240,0.7)"/>
+                                            <text x={i*50+25} y={80-bh-4} textAnchor="middle" fontSize="9" fill="var(--accent-blue)" fontWeight="600">{d.sessions}</text>
+                                            <text x={i*50+25} y={80} textAnchor="middle" fontSize="8.5" fill="var(--text-muted)">{d.month}</text>
+                                          </g>
+                                        );
+                                      })}
+                                    </svg>
+                                  );
+                                })()}
+                              </div>
+                            )
+                          }
+                        </div>
+                      </div>
+
+                      {/* Assignment table */}
+                      {stuAssign.length > 0 && (
+                        <table className="data-table" style={{fontSize:13}}>
+                          <thead><tr><th>Assignment</th><th>Subject</th><th>Status</th><th>Score</th><th>%</th></tr></thead>
+                          <tbody>{stuAssign.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(a => {
+                            const pct = a.obtainedMarks!=null ? Math.round((a.obtainedMarks/a.totalMarks)*100) : null;
+                            return (
+                              <tr key={a.id}>
+                                <td style={{fontWeight:500}}>{a.title}</td>
+                                <td style={{color:"var(--text-secondary)"}}>{a.subject||"—"}</td>
+                                <td><span className={`badge ${a.status==="graded"?"badge-green":a.status==="submitted"?"badge-amber":"badge-rose"}`}>{a.status}</span></td>
+                                <td>{a.obtainedMarks!=null?`${a.obtainedMarks}/${a.totalMarks}`:"—"}</td>
+                                <td>
+                                  {pct!=null && (
+                                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                      <div style={{width:50,height:6,background:"var(--bg-card)",borderRadius:3,overflow:"hidden"}}>
+                                        <div style={{width:`${pct}%`,height:"100%",background:pct>=80?"var(--accent-teal)":pct>=60?"var(--accent-amber)":"var(--accent-rose)",borderRadius:3}}/>
+                                      </div>
+                                      <span style={{fontSize:11,color:pct>=80?"var(--accent-teal)":pct>=60?"var(--accent-amber)":"var(--accent-rose)",fontWeight:600}}>{pct}%</span>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}</tbody>
+                        </table>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
             }
           </>
         )}

@@ -431,32 +431,117 @@ export default function StudentDashboard() {
         {/* PROGRESS */}
         {page === "progress" && (
           <>
-            <div className="page-header"><h1>My Progress</h1><p>Track your performance</p></div>
+            <div className="page-header"><h1>My Progress</h1><p>Track your performance over time</p></div>
+
+            {/* Top stats */}
             <div className="stats-row" style={{marginBottom:24}}>
-              <div className="stat-card"><div className="stat-label">Total</div><div className="stat-value color-blue">{assignments.length}</div></div>
+              <div className="stat-card"><div className="stat-label">Total Assignments</div><div className="stat-value color-blue">{assignments.length}</div></div>
               <div className="stat-card"><div className="stat-label">Submitted</div><div className="stat-value color-amber">{assignments.filter(a=>a.status!=="pending").length}</div></div>
               <div className="stat-card"><div className="stat-label">Graded</div><div className="stat-value color-teal">{graded.length}</div></div>
-              <div className="stat-card"><div className="stat-label">Average</div><div className="stat-value color-teal">{avg!=null?`${avg}%`:"—"}</div></div>
+              <div className="stat-card"><div className="stat-label">Average Score</div><div className="stat-value color-teal">{avg!=null?`${avg}%`:"—"}</div></div>
             </div>
-            <div className="card">
-              <div className="card-header"><h3>Assignment Scores</h3></div>
-              {graded.length === 0
-                ? <div className="empty-state"><div className="empty-icon">📊</div><p>No graded assignments yet.</p></div>
-                : graded.map(a => {
-                  const pct = Math.round((a.obtainedMarks/a.totalMarks)*100);
-                  return (
-                    <div key={a.id} style={{marginBottom:20}}>
-                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                        <span style={{fontSize:14,fontWeight:500}}>{a.title}</span>
-                        <span style={{fontSize:14,fontWeight:700,color:pct>=70?"var(--accent-teal)":pct>=50?"var(--accent-amber)":"var(--accent-rose)"}}>{pct}%</span>
+
+            {graded.length === 0
+              ? <div className="card"><div className="empty-state"><div className="empty-icon">📊</div><p>No graded assignments yet. Your charts will appear here once your tutor grades your work.</p></div></div>
+              : <>
+                {/* Score trend + Sessions chart side by side */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+
+                  {/* Score trend */}
+                  <div className="card" style={{marginBottom:0}}>
+                    <div style={{fontWeight:600,marginBottom:16}}>📈 Score Trend</div>
+                    {(() => {
+                      const trend = graded.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)).slice(-8).map(a=>({
+                        name: a.title.length>12 ? a.title.slice(0,12)+"…" : a.title,
+                        score: Math.round((a.obtainedMarks/a.totalMarks)*100)
+                      }));
+                      if (trend.length < 2) return <p style={{fontSize:13,color:"var(--text-muted)"}}>Need 2+ graded assignments to show trend.</p>;
+                      return (
+                        <>
+                          <svg viewBox={`0 0 ${trend.length*50} 100`} style={{width:"100%",height:100,overflow:"visible"}}>
+                            {[0,25,50,75,100].map(y=>(
+                              <line key={y} x1={0} y1={100-(y)} x2={trend.length*50} y2={100-(y)} stroke="rgba(255,255,255,0.05)" strokeWidth={1}/>
+                            ))}
+                            <polyline
+                              points={trend.map((d,i)=>`${i*50+25},${100-(d.score)}`).join(" ")}
+                              fill="none" stroke="var(--accent-teal)" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round"
+                            />
+                            {trend.map((d,i)=>(
+                              <g key={i}>
+                                <circle cx={i*50+25} cy={100-d.score} r={5} fill="var(--accent-teal)" stroke="var(--bg-card)" strokeWidth={2}/>
+                                <text x={i*50+25} y={100-d.score-10} textAnchor="middle" fontSize="10" fill="var(--accent-teal)" fontWeight="700">{d.score}%</text>
+                              </g>
+                            ))}
+                          </svg>
+                          <div style={{display:"flex",justifyContent:"space-around",marginTop:4}}>
+                            {trend.map((d,i)=><div key={i} style={{fontSize:9,color:"var(--text-muted)",textAlign:"center",flex:1}}>{d.name}</div>)}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Score distribution */}
+                  <div className="card" style={{marginBottom:0}}>
+                    <div style={{fontWeight:600,marginBottom:16}}>🎯 Score Distribution</div>
+                    {(() => {
+                      const bands = [
+                        {label:"90-100%",min:90,max:101,color:"var(--accent-teal)"},
+                        {label:"70-89%",min:70,max:90,color:"#3d8ef0"},
+                        {label:"50-69%",min:50,max:70,color:"var(--accent-amber)"},
+                        {label:"<50%",min:0,max:50,color:"var(--accent-rose)"},
+                      ];
+                      const total = graded.length;
+                      return bands.map(band=>{
+                        const count = graded.filter(a=>{
+                          const p=(a.obtainedMarks/a.totalMarks)*100;
+                          return p>=band.min && p<band.max;
+                        }).length;
+                        const pct = total ? Math.round(count/total*100) : 0;
+                        return (
+                          <div key={band.label} style={{marginBottom:10}}>
+                            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}>
+                              <span style={{color:"var(--text-secondary)"}}>{band.label}</span>
+                              <span style={{fontWeight:600,color:band.color}}>{count} assignment{count!==1?"s":""}</span>
+                            </div>
+                            <div style={{height:8,background:"var(--bg-secondary)",borderRadius:4,overflow:"hidden"}}>
+                              <div style={{width:`${pct}%`,height:"100%",background:band.color,borderRadius:4,transition:"width 0.6s ease"}}/>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+
+                {/* All graded assignments detail */}
+                <div className="card">
+                  <div style={{fontWeight:600,marginBottom:16}}>📋 All Graded Assignments</div>
+                  {graded.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(a => {
+                    const pct = Math.round((a.obtainedMarks/a.totalMarks)*100);
+                    const col = pct>=80?"var(--accent-teal)":pct>=60?"var(--accent-amber)":"var(--accent-rose)";
+                    return (
+                      <div key={a.id} style={{marginBottom:18,paddingBottom:18,borderBottom:"1px solid var(--border)"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                          <div>
+                            <div style={{fontWeight:600,fontSize:14}}>{a.title}</div>
+                            {a.subject && <div style={{fontSize:12,color:"var(--text-muted)"}}>{a.subject}</div>}
+                          </div>
+                          <div style={{textAlign:"right",flexShrink:0,marginLeft:12}}>
+                            <div style={{fontSize:20,fontWeight:800,color:col}}>{pct}%</div>
+                            <div style={{fontSize:11,color:"var(--text-muted)"}}>{a.obtainedMarks}/{a.totalMarks}</div>
+                          </div>
+                        </div>
+                        <div className="progress-bar" style={{marginBottom:6}}>
+                          <div className="progress-fill" style={{width:`${pct}%`,background:col}}/>
+                        </div>
+                        {a.feedback && <div style={{fontSize:12,color:"var(--text-secondary)",marginTop:6,padding:"6px 10px",background:"var(--bg-secondary)",borderRadius:6}}>💬 {a.feedback}</div>}
                       </div>
-                      <div className="progress-bar"><div className="progress-fill" style={{width:`${pct}%`,background:pct>=70?"var(--accent-teal)":pct>=50?"var(--accent-amber)":"var(--accent-rose)"}}></div></div>
-                      {a.feedback && <div style={{fontSize:12,color:"var(--text-secondary)",marginTop:4}}>💬 {a.feedback}</div>}
-                    </div>
-                  );
-                })
-              }
-            </div>
+                    );
+                  })}
+                </div>
+              </>
+            }
           </>
         )}
 
