@@ -69,7 +69,7 @@ export default function TutorDashboard() {
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [rescheduleSession, setRescheduleSession] = useState(null);
   const [cancelSession, setCancelSession] = useState(null);
-  const [scheduleForm, setScheduleForm] = useState({ studentId: "", date: "", slotKey: "", slotDay: "", slotStartPKT: "", slotEndPKT: "", slotDuration: "", topic: "" });
+  const [scheduleForm, setScheduleForm] = useState({ studentIds: [], date: "", slotKey: "", slotDay: "", slotStartPKT: "", slotEndPKT: "", slotDuration: "", topic: "" });
   const [activeChatStudent, setActiveChatStudent] = useState(null);
   const [invoices, setInvoices] = useState([]);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
@@ -232,15 +232,19 @@ export default function TutorDashboard() {
 
   // Count how many sessions (for these students) have been completed against a package's creation date
   const getPackageUsage = (pkg) => {
+    // Get unique sessions for this package — a shared session counts as 1 class,
+    // not 1 per student. We deduplicate by session ID.
     const usedSessions = sessions.filter(s =>
-      pkg.studentIds.includes(s.studentId) &&
       s.status === "completed" &&
       s.packageId === pkg.id
     );
+    // Deduplicate by session ID (shared sessions appear once in tutor's sessions list anyway)
+    const uniqueIds = [...new Set(usedSessions.map(s => s.id))];
+    const uniqueUsed = uniqueIds.length;
     return {
-      used: usedSessions.length,
-      remaining: pkg.totalClasses - usedSessions.length,
-      sessions: usedSessions
+      used: uniqueUsed,
+      remaining: pkg.totalClasses - uniqueUsed,
+      sessions: usedSessions.filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i)
     };
   };
 
@@ -281,22 +285,37 @@ export default function TutorDashboard() {
   };
 
   const scheduleSession = async () => {
-    const { studentId, date, slotDay, slotStartPKT, slotEndPKT, slotDuration, topic } = scheduleForm;
-    if (!studentId || !date || !slotDay || !topic.trim()) {
+    const { studentIds, date, slotDay, slotStartPKT, slotEndPKT, slotDuration, topic } = scheduleForm;
+    if (!studentIds.length || !date || !slotDay || !topic.trim()) {
       toast.error("Please fill all fields."); return;
     }
     if (hasScheduleConflict(date, slotStartPKT, slotEndPKT)) {
       toast.error("This slot conflicts with an existing session. Please pick another time.");
       return;
     }
-    const student = students.find(s => s.id === studentId);
-    const utcTimestamp = pktToUtc(date, slotStartPKT);
-    const activePkg = packages.find(p => p.status === "active" && p.studentIds.includes(studentId));
 
+    const utcTimestamp = pktToUtc(date, slotStartPKT);
+    const isShared = studentIds.length > 1;
+
+    // Find the shared package that includes ALL selected students (or individual package)
+    const activePkg = packages.find(p =>
+      p.status === "active" &&
+      studentIds.every(sid => p.studentIds.includes(sid))
+    ) || packages.find(p =>
+      p.status === "active" &&
+      studentIds.some(sid => p.studentIds.includes(sid))
+    );
+
+    const newRef = push(ref(db, `tutors/${currentUser.uid}/sessions`));
     const sessionData = {
       topic,
-      studentId,
-      studentName: student?.name,
+      studentIds,
+      studentNames: studentIds.map(sid => students.find(s => s.id === sid)?.name).filter(Boolean),
+      // Keep single studentId/studentName for backwards compatibility with existing UI
+      studentId: studentIds[0],
+      studentName: isShared
+        ? studentIds.map(sid => students.find(s => s.id === sid)?.name).filter(Boolean).join(" & ")
+        : students.find(s => s.id === studentIds[0])?.name,
       tutorId: currentUser.uid,
       tutorName: userProfile.name,
       utcTimestamp,
@@ -306,20 +325,26 @@ export default function TutorDashboard() {
       slotEndPKT,
       date,
       status: "scheduled",
+      isShared,
       createdAt: Date.now(),
       ...(activePkg && { packageId: activePkg.id, packageName: activePkg.name })
     };
-    const newRef = push(ref(db, `tutors/${currentUser.uid}/sessions`));
-    await set(newRef, sessionData);
-    await set(ref(db, `students/${studentId}/sessions/${newRef.key}`), sessionData);
 
-    notify(db, studentId, `${userProfile.name} scheduled a session: "${topic}" on ${date} at ${fmt12(slotStartPKT)} PKT 📅`, "session");
-    if (student?.email) sendEmail(student.email, student.name,
-      `New Session Scheduled: "${topic}" 📅`,
-      `Hi ${student.name},\n\nYour tutor ${userProfile.name} has scheduled a session with you.\n\nTopic: ${topic}\nDate: ${date}\nTime (PKT): ${fmt12(slotStartPKT)} – ${fmt12(slotEndPKT)}\nDuration: ${slotDuration} minutes\n\nLog in to TutorTracker to see the time in your own timezone.`
-    );
-    toast.success("Session scheduled!");
-    setScheduleForm({ studentId: "", date: "", slotKey: "", slotDay: "", slotStartPKT: "", slotEndPKT: "", slotDuration: "", topic: "" });
+    await set(newRef, sessionData);
+
+    // Save to each student's sessions
+    for (const sid of studentIds) {
+      await set(ref(db, `students/${sid}/sessions/${newRef.key}`), sessionData);
+      const stu = students.find(s => s.id === sid);
+      notify(db, sid, `${userProfile.name} scheduled a session: "${topic}" on ${date} at ${fmt12(slotStartPKT)} PKT 📅`, "session");
+      if (stu?.email) sendEmail(stu.email, stu.name,
+        `New Session Scheduled: "${topic}" 📅`,
+        `Hi ${stu.name},\n\nYour tutor ${userProfile.name} has scheduled a session with you${isShared ? " (shared session)" : ""}.\n\nTopic: ${topic}\nDate: ${date}\nTime (PKT): ${fmt12(slotStartPKT)} – ${fmt12(slotEndPKT)}\nDuration: ${slotDuration} minutes\n\nLog in to TutorTracker to see the time in your own timezone.`
+      );
+    }
+
+    toast.success(isShared ? `Shared session scheduled for ${sessionData.studentName}! (counts as 1 class)` : "Session scheduled!");
+    setScheduleForm({ studentIds: [], date: "", slotKey: "", slotDay: "", slotStartPKT: "", slotEndPKT: "", slotDuration: "", topic: "" });
     setShowScheduleModal(false);
   };
 
@@ -423,13 +448,16 @@ export default function TutorDashboard() {
 
   const cancelSessionFn = async (s) => {
     await set(ref(db, `tutors/${currentUser.uid}/sessions/${s.id}/status`), "cancelled");
-    await set(ref(db, `students/${s.studentId}/sessions/${s.id}/status`), "cancelled");
-    notify(db, s.studentId, `Session "${s.topic}" on ${s.date} has been cancelled ❌`, "session");
-    const stuEntry = students.find(st => st.id === s.studentId);
-    if (stuEntry?.email) sendEmail(stuEntry.email, stuEntry.name,
-      `Session Cancelled ❌`,
-      `Hi ${stuEntry.name},\n\nYour tutor ${userProfile.name} has cancelled the session:\n\nTopic: ${s.topic}\nOriginal Time (PKT): ${s.utcTimestamp ? formatInPKT(s.utcTimestamp) : s.date}\n\nPlease log in to TutorTracker to book a new session.`
-    );
+    const affectedStudentIds = s.studentIds || [s.studentId];
+    for (const sid of affectedStudentIds) {
+      await set(ref(db, `students/${sid}/sessions/${s.id}/status`), "cancelled");
+      notify(db, sid, `Session "${s.topic}" on ${s.date} has been cancelled ❌`, "session");
+      const stuEntry = students.find(st => st.id === sid);
+      if (stuEntry?.email) sendEmail(stuEntry.email, stuEntry.name,
+        `Session Cancelled ❌`,
+        `Hi ${stuEntry.name},\n\nYour tutor ${userProfile.name} has cancelled the session:\n\nTopic: ${s.topic}\nOriginal Time (PKT): ${s.utcTimestamp ? formatInPKT(s.utcTimestamp) : s.date}\n\nPlease log in to TutorTracker to book a new session.`
+      );
+    }
     toast.success("Session cancelled.");
     setCancelSession(null);
   };
@@ -440,19 +468,22 @@ export default function TutorDashboard() {
     if (!date || !slotDay) { toast.error("Please pick a new date and time."); return; }
     const utcTimestamp = pktToUtc(date, slotStartPKT);
     const updatedFields = { date, slotDay, slotStartPKT, slotEndPKT, slotDuration, utcTimestamp, status: "scheduled" };
+    const affectedStudentIds = s.studentIds || [s.studentId];
     Object.entries(updatedFields).forEach(([k, v]) => {
       set(ref(db, `tutors/${currentUser.uid}/sessions/${s.id}/${k}`), v);
-      set(ref(db, `students/${s.studentId}/sessions/${s.id}/${k}`), v);
+      affectedStudentIds.forEach(sid => set(ref(db, `students/${sid}/sessions/${s.id}/${k}`), v));
     });
-    notify(db, s.studentId, `Session "${s.topic}" has been rescheduled to ${formatInPKT(utcTimestamp)} 🔄`, "session");
-    const stuEntry = students.find(st => st.id === s.studentId);
-    if (stuEntry?.email) sendEmail(stuEntry.email, stuEntry.name,
-      `Session Rescheduled 🔄`,
-      `Hi ${stuEntry.name},\n\nYour tutor ${userProfile.name} has rescheduled your session:\n\nTopic: ${s.topic}\nNew Time (PKT): ${fmt12(slotStartPKT)} on ${date}\n\nLog in to TutorTracker to see the updated time in your timezone.`
-    );
+    for (const sid of affectedStudentIds) {
+      notify(db, sid, `Session "${s.topic}" has been rescheduled to ${formatInPKT(utcTimestamp)} 🔄`, "session");
+      const stuEntry = students.find(st => st.id === sid);
+      if (stuEntry?.email) sendEmail(stuEntry.email, stuEntry.name,
+        `Session Rescheduled 🔄`,
+        `Hi ${stuEntry.name},\n\nYour tutor ${userProfile.name} has rescheduled your session:\n\nTopic: ${s.topic}\nNew Time (PKT): ${fmt12(slotStartPKT)} on ${date}\n\nLog in to TutorTracker to see the updated time in your timezone.`
+      );
+    }
     toast.success("Session rescheduled!");
     setRescheduleSession(null);
-    setScheduleForm({ studentId: "", date: "", slotKey: "", slotDay: "", slotStartPKT: "", slotEndPKT: "", slotDuration: "", topic: "" });
+    setScheduleForm({ studentIds: [], date: "", slotKey: "", slotDay: "", slotStartPKT: "", slotEndPKT: "", slotDuration: "", topic: "" });
   };
 
   const gradeAssignment = async () => {
@@ -677,7 +708,7 @@ export default function TutorDashboard() {
                     return (
                     <tr key={s.id}>
                       <td style={{fontWeight:500}}>{s.topic}</td>
-                      <td>{s.studentName}</td>
+                      <td>{s.studentName}{s.isShared && <span style={{marginLeft:6,fontSize:10,background:"rgba(56,201,176,0.15)",color:"var(--accent-teal)",padding:"2px 6px",borderRadius:4,fontWeight:600}}>SHARED</span>}</td>
                       <td style={{color:"var(--text-secondary)",fontSize:12}}>{s.utcTimestamp ? formatInPKT(s.utcTimestamp) : `${s.date} ${s.time}`}</td>
                       <td style={{fontSize:12}}>
                         {studentLocalTime
@@ -691,7 +722,7 @@ export default function TutorDashboard() {
                         {s.status==="scheduled" && (
                           <div style={{display:"flex",gap:6}}>
                             <button className="btn btn-sm btn-outline" onClick={() => markSessionDone(s)}>✅ Done</button>
-                            <button className="btn btn-sm btn-outline" onClick={() => { setRescheduleSession(s); setScheduleForm(f=>({...f,studentId:s.studentId,topic:s.topic,slotKey:"",slotDay:"",date:""})); setShowScheduleModal(true); }}>🔄 Reschedule</button>
+                            <button className="btn btn-sm btn-outline" onClick={() => { setRescheduleSession(s); setScheduleForm(f=>({...f,studentIds:s.studentIds||[s.studentId],topic:s.topic,slotKey:"",slotDay:"",date:""})); setShowScheduleModal(true); }}>🔄 Reschedule</button>
                             <button className="btn btn-sm btn-danger" onClick={() => setCancelSession(s)}>❌ Cancel</button>
                           </div>
                         )}
@@ -1301,11 +1332,29 @@ export default function TutorDashboard() {
             </p>
 
             {!rescheduleSession && (
-              <div className="field"><label>Student *</label>
-                <select value={scheduleForm.studentId} onChange={e => setScheduleForm(f => ({...f, studentId: e.target.value}))}>
-                  <option value="">Select student</option>
-                  {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+              <div className="field"><label>Students * {scheduleForm.studentIds.length > 1 && <span style={{color:"var(--accent-teal)",fontWeight:400,fontSize:12}}>— shared session (counts as 1 class)</span>}</label>
+                <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:4}}>
+                  {students.map(s => {
+                    const checked = scheduleForm.studentIds.includes(s.id);
+                    return (
+                      <div key={s.id} onClick={() => setScheduleForm(f => ({
+                          ...f,
+                          studentIds: checked ? f.studentIds.filter(id => id !== s.id) : [...f.studentIds, s.id]
+                        }))}
+                        style={{
+                          display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
+                          borderRadius:8,cursor:"pointer",border:"1px solid",
+                          borderColor: checked ? "var(--accent-blue)" : "var(--border)",
+                          background: checked ? "rgba(61,142,240,0.1)" : "var(--bg-secondary)"
+                        }}>
+                        <div style={{width:18,height:18,borderRadius:4,border:"2px solid",borderColor:checked?"var(--accent-blue)":"var(--border)",background:checked?"var(--accent-blue)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                          {checked && <span style={{color:"white",fontSize:12,lineHeight:1}}>✓</span>}
+                        </div>
+                        <span style={{fontWeight:500,color:checked?"var(--accent-blue)":"var(--text-primary)"}}>{s.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
