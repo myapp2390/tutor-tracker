@@ -209,29 +209,29 @@ export default function StudentDashboard() {
   const submitAssignment = async () => {
     const a = submitModal;
     setPdfUploading(true);
-    let pdfUrl = null;
-    let pdfName = null;
+    let submissionUrl = null;
+    let submissionName = null;
 
     if (pdfFile) {
-      pdfUrl = await uploadFile(pdfFile, `submissions/${currentUser.uid}/${Date.now()}_${pdfFile.name}`);
-      pdfName = pdfFile.name;
+      submissionUrl = await uploadFile(pdfFile, `submissions/${currentUser.uid}/${Date.now()}_${pdfFile.name}`);
+      submissionName = pdfFile.name;
     }
 
     await set(ref(db, `students/${currentUser.uid}/assignments/${a.id}/status`), "submitted");
     await set(ref(db, `students/${currentUser.uid}/assignments/${a.id}/submittedNote`), submitNote);
     await set(ref(db, `students/${currentUser.uid}/assignments/${a.id}/submittedAt`), Date.now());
-    if (pdfUrl) {
-      await set(ref(db, `students/${currentUser.uid}/assignments/${a.id}/pdfUrl`), pdfUrl);
-      await set(ref(db, `students/${currentUser.uid}/assignments/${a.id}/pdfName`), pdfName);
+    if (submissionUrl) {
+      await set(ref(db, `students/${currentUser.uid}/assignments/${a.id}/submissionUrl`), submissionUrl);
+      await set(ref(db, `students/${currentUser.uid}/assignments/${a.id}/submissionName`), submissionName);
     }
 
     if (a.tutorAssignmentPath) {
       await set(ref(db, `${a.tutorAssignmentPath}/status`), "submitted");
       await set(ref(db, `${a.tutorAssignmentPath}/submittedNote`), submitNote);
       await set(ref(db, `${a.tutorAssignmentPath}/submittedAt`), Date.now());
-      if (pdfUrl) {
-        await set(ref(db, `${a.tutorAssignmentPath}/pdfUrl`), pdfUrl);
-        await set(ref(db, `${a.tutorAssignmentPath}/pdfName`), pdfName);
+      if (submissionUrl) {
+        await set(ref(db, `${a.tutorAssignmentPath}/submissionUrl`), submissionUrl);
+        await set(ref(db, `${a.tutorAssignmentPath}/submissionName`), submissionName);
       }
     }
 
@@ -403,7 +403,12 @@ export default function StudentDashboard() {
                       {a.description && <div style={{fontSize:13,color:"var(--text-secondary)",marginTop:8}}>{a.description}</div>}
                       {a.pdfName && (
                         <a href={a.pdfUrl} download={a.pdfName} style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,padding:"6px 12px",background:"rgba(61,142,240,0.1)",borderRadius:6,fontSize:13,color:"var(--accent-blue)",textDecoration:"none"}}>
-                          📄 Download: {a.pdfName}
+                          📄 Tutor's Attachment: {a.pdfName}
+                        </a>
+                      )}
+                      {a.submissionName && (
+                        <a href={a.submissionUrl} download={a.submissionName} style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:6,padding:"6px 12px",background:"rgba(56,201,176,0.1)",borderRadius:6,fontSize:13,color:"var(--accent-teal)",textDecoration:"none"}}>
+                          📤 Your Submission: {a.submissionName}
                         </a>
                       )}
                       {a.feedback && <div style={{marginTop:10,padding:"8px 12px",background:"rgba(56,201,176,0.08)",borderRadius:8,fontSize:13,color:"var(--accent-teal)"}}>💬 Feedback: {a.feedback}</div>}

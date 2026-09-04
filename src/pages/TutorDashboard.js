@@ -811,31 +811,47 @@ export default function TutorDashboard() {
                         </div>
                         {a.description && <div style={{fontSize:13,color:"var(--text-secondary)",marginBottom:8}}>{a.description}</div>}
 
-                        {/* Tutor's attached PDF */}
+                        {/* Tutor's original attachment */}
                         {a.pdfName && a.pdfUrl && (
-                          <a href={a.pdfUrl} download={a.pdfName}
+                          <a href={a.pdfUrl} target="_blank" rel="noreferrer"
                             style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",background:"rgba(61,142,240,0.1)",borderRadius:6,fontSize:12,color:"var(--accent-blue)",textDecoration:"none",marginBottom:8}}>
-                            📄 {a.pdfName} (your attachment)
+                            📄 Your Attachment: {a.pdfName}
                           </a>
                         )}
 
                         {/* Student submission */}
                         {a.status !== "pending" && (
                           <div style={{marginTop:8,padding:"12px",background:"var(--bg-secondary)",borderRadius:8,border:"1px solid var(--border)"}}>
-                            <div style={{fontSize:12,fontWeight:600,color:"var(--text-muted)",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Student Submission</div>
-                            {a.submittedNote && <div style={{fontSize:13,color:"var(--text-primary)",marginBottom:6}}>💬 {a.submittedNote}</div>}
-                            {a.pdfName && a.status !== "pending" && a.pdfUrl && a.studentId && (
-                              <a href={a.pdfUrl} download={a.pdfName}
-                                style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",background:"rgba(56,201,176,0.1)",borderRadius:6,fontSize:12,color:"var(--accent-teal)",textDecoration:"none"}}>
-                                📄 Download: {a.pdfName}
+                            <div style={{fontSize:12,fontWeight:600,color:"var(--text-muted)",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>Student Submission</div>
+                            {a.submittedNote && (
+                              <div style={{fontSize:13,color:"var(--text-primary)",marginBottom:8,padding:"8px 10px",background:"var(--bg-card)",borderRadius:6}}>
+                                💬 {a.submittedNote}
+                              </div>
+                            )}
+                            {a.submissionUrl && a.submissionName && (
+                              <a href={a.submissionUrl} target="_blank" rel="noreferrer"
+                                style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",background:"rgba(56,201,176,0.1)",borderRadius:6,fontSize:12,color:"var(--accent-teal)",textDecoration:"none",fontWeight:500}}>
+                                📤 Download Submission: {a.submissionName}
                               </a>
                             )}
-                            {!a.submittedNote && !a.pdfName && <div style={{fontSize:13,color:"var(--text-muted)"}}>No note or file submitted.</div>}
+                            {!a.submittedNote && !a.submissionUrl && (
+                              <div style={{fontSize:13,color:"var(--text-muted)"}}>No note or file submitted.</div>
+                            )}
                           </div>
                         )}
 
-                        {/* Feedback if graded */}
-                        {a.feedback && <div style={{marginTop:8,padding:"8px 12px",background:"rgba(56,201,176,0.08)",borderRadius:8,fontSize:13,color:"var(--accent-teal)"}}>Your feedback: {a.feedback}</div>}
+                        {/* Tutor feedback after grading */}
+                        {a.feedback && (
+                          <div style={{marginTop:8,padding:"8px 12px",background:"rgba(56,201,176,0.08)",borderRadius:8,fontSize:13,color:"var(--accent-teal)"}}>
+                            ✅ Your feedback: {a.feedback}
+                          </div>
+                        )}
+                        {a.feedbackPdfUrl && a.feedbackPdfName && (
+                          <a href={a.feedbackPdfUrl} target="_blank" rel="noreferrer"
+                            style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:6,padding:"5px 10px",background:"rgba(56,201,176,0.1)",borderRadius:6,fontSize:12,color:"var(--accent-teal)",textDecoration:"none"}}>
+                            📄 Feedback PDF: {a.feedbackPdfName}
+                          </a>
+                        )}
                       </div>
 
                       <div style={{textAlign:"right",flexShrink:0,marginLeft:20}}>
